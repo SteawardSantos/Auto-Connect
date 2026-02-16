@@ -39,15 +39,15 @@ auto_discover_node_id() {
     if [ -f "$CONFIG_FILE" ]; then
         source "$CONFIG_FILE"
         if [ -n "$NODE_ID" ] && [ -n "$VIRTUAL_IP" ]; then
-            log "✅ Configuración previa detectada (ejecución anterior)"
-            debug "NODE_ID guardado: $NODE_ID | IP Virtual: $VIRTUAL_IP"
+            log "✅ Configuración previa detectada (ejecución anterior)" >&2
+            debug "NODE_ID guardado: $NODE_ID | IP Virtual: $VIRTUAL_IP" >&2
             previous_run=true
             
             # Verificar si la IP virtual todavía está en el loopback
             if ip addr show lo | grep -q "$VIRTUAL_IP"; then
-                debug "IP virtual $VIRTUAL_IP todavía activa en loopback"
+                debug "IP virtual $VIRTUAL_IP todavía activa en loopback" >&2
             else
-                warn "IP virtual $VIRTUAL_IP no encontrada (se reconfigurará)"
+                warn "IP virtual $VIRTUAL_IP no encontrada (se reconfigurará)" >&2
             fi
             
             echo "$NODE_ID"
@@ -56,24 +56,24 @@ auto_discover_node_id() {
     fi
     
     # 2. Primera ejecución: Auto-descubrir NODE_ID disponible
-    log "Primera ejecución detectada. Buscando NODE_ID disponible..."
+    log "Primera ejecución detectada. Buscando NODE_ID disponible..." >&2
     
     # Verificar que Tailscale esté instalado y autenticado
     if ! command -v tailscale &> /dev/null; then
-        warn "Tailscale no instalado todavía. Usando NODE_ID=1 por defecto."
+        warn "Tailscale no instalado todavía. Usando NODE_ID=1 por defecto." >&2
         echo "1"
         return 0
     fi
     
     # Verificar si Tailscale está autenticado
     if ! tailscale status &> /dev/null; then
-        warn "Tailscale no autenticado todavía. Usando NODE_ID=1 por defecto."
+        warn "Tailscale no autenticado todavía. Usando NODE_ID=1 por defecto." >&2
         echo "1"
         return 0
     fi
     
     # Escanear red Tailscale para encontrar IPs virtuales existentes
-    log "Escaneando red Tailscale para detectar nodos existentes..."
+    log "Escaneando red Tailscale para detectar nodos existentes..." >&2
     
     # Obtener todas las rutas anunciadas en la red
     USED_IPS=$(tailscale status --json 2>/dev/null | \
@@ -88,9 +88,9 @@ auto_discover_node_id() {
     fi
     
     if [ -n "$USED_IPS" ]; then
-        debug "IPs virtuales detectadas en red Tailscale:"
+        debug "IPs virtuales detectadas en red Tailscale:" >&2
         echo "$USED_IPS" | while read ip; do
-            debug "  - $ip"
+            debug "  - $ip" >&2
         done
         
         # Extraer números de nodo usados
@@ -105,11 +105,11 @@ auto_discover_node_id() {
             NEXT_ID=$((used + 1))
         done
         
-        log "✅ NODE_ID asignado automáticamente: $NEXT_ID"
+        log "✅ NODE_ID asignado automáticamente: $NEXT_ID" >&2
         echo "$NEXT_ID"
     else
         # No hay nodos detectados, usar ID 1
-        log "No se detectaron nodos existentes. Asignando NODE_ID=1"
+        log "No se detectaron nodos existentes. Asignando NODE_ID=1" >&2
         echo "1"
     fi
 }
@@ -130,7 +130,7 @@ TARGET_REAL_IP="$TARGET_REAL_IP"
 EOF
     
     chmod 600 "$CONFIG_FILE"
-    debug "Configuración guardada en $CONFIG_FILE"
+    debug "Configuración guardada en $CONFIG_FILE" >&2
 }
 
 if [ "$EUID" -ne 0 ]; then
@@ -256,11 +256,19 @@ CURRENT_MTU=$(cat /sys/class/net/$LAN_IFACE/mtu)
 
 if [ "$CURRENT_MTU" -ne "$MTU_VALUE" ]; then
     log "Ajustando MTU de $LAN_IFACE: $CURRENT_MTU → $MTU_VALUE (previene fragmentación)"
-    ip link set dev "$LAN_IFACE" mtu "$MTU_VALUE"
     
-    # Hacer persistente en NetworkManager
+    # Hacer persistente en NetworkManager (esto evita "Device or resource busy")
     if [ -n "$LAN_CONNECTION" ]; then
-        nmcli connection modify "$LAN_CONNECTION" 802-3-ethernet.mtu "$MTU_VALUE" 2>/dev/null || true
+        nmcli connection modify "$LAN_CONNECTION" 802-3-ethernet.mtu "$MTU_VALUE" 2>/dev/null
+        # Aplicar reiniciando la conexión brevemente
+        nmcli connection down "$LAN_CONNECTION" &>/dev/null
+        nmcli connection up "$LAN_CONNECTION" &>/dev/null
+        log "✅ MTU actualizado y aplicado vía NetworkManager"
+    else
+        # Fallback: cambiar directamente (puede fallar si está en uso)
+        ip link set dev "$LAN_IFACE" mtu "$MTU_VALUE" 2>/dev/null && \
+            log "✅ MTU actualizado directamente" || \
+            warn "No se pudo cambiar MTU (interfaz en uso). Aplicar manualmente si es necesario."
     fi
 else
     log "✅ MTU de $LAN_IFACE ya configurado: $MTU_VALUE"
@@ -417,4 +425,4 @@ echo ""
 log "El nodo está listo para funcionar como bridge Tailscale."
 log "Para verificar rutas anunciadas: tailscale status"
 echo ""
-debug "Próximas ejecuciones detectarán NODE_ID=$NODE_ID automáticamente"
+debug "Próximas ejecuciones detectarán NODE_ID=$NODE_ID automáticamente" >&2
