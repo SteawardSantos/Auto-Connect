@@ -55,8 +55,8 @@ auto_discover_node_id() {
         fi
     fi
     
-    # 2. Primera ejecución: Auto-descubrir NODE_ID disponible
-    log "Primera ejecución detectada. Buscando NODE_ID disponible..." >&2
+    # 2. Primera ejecución: Auto-descubrir NODE_ID
+    log "Primera ejecución detectada. Buscando NODE_ID..." >&2
     
     # Verificar que Tailscale esté instalado y autenticado
     if ! command -v tailscale &> /dev/null; then
@@ -72,27 +72,49 @@ auto_discover_node_id() {
         return 0
     fi
     
-    # Escanear red Tailscale para encontrar IPs virtuales existentes
-    log "Escaneando red Tailscale para detectar nodos existentes..." >&2
+    # NUEVA LÓGICA: Auto-descubrimiento por posición alfabética de Hostname (*-rpi-pt)
+    log "Escaneando red Tailscale para determinar posición del nodo..." >&2
+    
+    # Obtener nuestro DNSName actual en Tailscale (parte antes del primer punto)
+    MY_DNSNAME=$(tailscale status --json 2>/dev/null | grep -oP '"DNSName":\s*"\K[^."]+' | head -1)
+    
+    if [ -z "$MY_DNSNAME" ]; then
+        MY_DNSNAME=$(hostname)
+    fi
+    
+    debug "Mi DNSName detectado: $MY_DNSNAME" >&2
+    
+    # Obtener lista de todos los DNSNames que coinciden con el patrón *-rpi-pt
+    ALL_NODES=$(tailscale status --json 2>/dev/null | grep -oP '"DNSName":\s*"\K[^."]+' | grep "\-rpi\-pt" | sort -u)
+    
+    if [ -n "$ALL_NODES" ]; then
+        # Encontrar nuestra posición en la lista ordenada
+        INDEX=1
+        FOUND=false
+        while read -r node; do
+            if [ "$node" == "$MY_DNSNAME" ]; then
+                FOUND=true
+                break
+            fi
+            INDEX=$((INDEX + 1))
+        done <<< "$ALL_NODES"
+        
+        if [ "$FOUND" == "true" ]; then
+            log "✅ NODE_ID asignado por posición alfabética ($MY_DNSNAME): $INDEX" >&2
+            echo "$INDEX"
+            return 0
+        fi
+    fi
+    
+    # FALLBACK: Escanear red Tailscale para encontrar IPs virtuales existentes (Gap Discovery)
+    log "No se pudo determinar posición. Usando descubrimiento por huecos de IP..." >&2
     
     # Obtener todas las rutas anunciadas en la red
     USED_IPS=$(tailscale status --json 2>/dev/null | \
                grep -oP "${VIRTUAL_IP_BASE//./\\.}\.\d+" | \
                sort -u)
     
-    # Si no hay resultados, intentar con método alternativo
-    if [ -z "$USED_IPS" ]; then
-        USED_IPS=$(tailscale status 2>/dev/null | \
-                   grep -oP "${VIRTUAL_IP_BASE//./\\.}\.\d+" | \
-                   sort -u)
-    fi
-    
     if [ -n "$USED_IPS" ]; then
-        debug "IPs virtuales detectadas en red Tailscale:" >&2
-        echo "$USED_IPS" | while read ip; do
-            debug "  - $ip" >&2
-        done
-        
         # Extraer números de nodo usados
         USED_NODES=$(echo "$USED_IPS" | grep -oP "${VIRTUAL_IP_BASE//./\\.}\.(\d+)" | cut -d. -f4 | sort -n)
         
@@ -105,10 +127,9 @@ auto_discover_node_id() {
             NEXT_ID=$((used + 1))
         done
         
-        log "✅ NODE_ID asignado automáticamente: $NEXT_ID" >&2
+        log "✅ NODE_ID asignado por hueco de IP: $NEXT_ID" >&2
         echo "$NEXT_ID"
     else
-        # No hay nodos detectados, usar ID 1
         log "No se detectaron nodos existentes. Asignando NODE_ID=1" >&2
         echo "1"
     fi

@@ -1,64 +1,51 @@
-# Auto-Connect Wi-Fi & Tailscale Setup 🚀
+# Auto-Connect Wi-Fi & Tailscale Bridge 🚀
 
-Este script automatiza la conexión a redes Wi-Fi específicas (con patrón `APxxxx`), asegurando que la conexión por cable (Ethernet/LAN) mantenga la prioridad para el acceso a Internet. Además, optimiza la interfaz de red y levanta **Tailscale** con rutas personalizadas.
+Este repositorio contiene un conjunto de scripts diseñados para automatizar la configuración de Raspberry Pi como **Tailscale Bridges**, con una lógica de auto-descubrimiento basada en la red Tailscale.
 
-Ideal para **Raspberry Pi** o servidores Linux que necesitan conectarse a una red Wi-Fi secundaria sin perder la estabilidad de su conexión principal por cable.
+## 📋 Características principales
 
-## 📋 Características
+*   **Auto-Discovery de NODE_ID:** Asigna automáticamente un `NODE_ID` único (del 1 al 254) basado en la posición alfabética del hostname del nodo (`*-rpi-pt`) en la red Tailscale.
+*   **Gestión Wi-Fi Inteligente:** Busca y conecta automáticamente a redes Wi-Fi con el patrón `APxxxx`.
+*   **Prioridad de LAN:** Configura métricas de ruta (`600`) para que la conexión Ethernet mantenga la prioridad sobre el Wi-Fi.
+*   **Bridge NAT Automático:** Configura reglas de `iptables` y redirección de puertos para mapear IPs virtuales (`10.200.0.X`) a la IP local del dispositivo (`192.168.41.1`).
+*   **Auto-Aprobación de Rutas:** Diseñado para funcionar con ACLs de Tailscale que aprueban automáticamente el rango `10.200.0.0/24`.
 
-* **Escaneo Inteligente:** Busca automáticamente redes que cumplan el patrón `AP` seguido de números (ej. `AP00011381`).
-* **Selector Interactivo:** Si detecta más de una red compatible, despliega un menú para elegir a cuál conectarse.
-* **Protección de LAN (Route Metric):** Configura la métrica del Wi-Fi en `600` (alta) para que el sistema siga priorizando la conexión Ethernet (`eth0`) para el tráfico de Internet.
-* **Optimización de Red:** Ajusta `ethtool` (UDP GRO off) para mejorar el rendimiento de **Tailscale/WireGuard**.
-* **Gestión de Energía:** Activa el radio Wi-Fi automáticamente si está apagado.
-* **Tailscale:** Levanta el servicio anunciando rutas locales.
+## 🛠️ Scripts incluidos
 
-## ⚙️ Requisitos
-
-* Sistema Operativo Linux (Probado en Raspberry Pi OS / Debian / Ubuntu).
-* **NetworkManager** (`nmcli`) instalado y gestionando las redes.
-* **Tailscale** instalado.
-* Permisos de **Root** (sudo).
-
-Paquetes necesarios (el script intenta usar `ethtool` si existe):
+### 1. `auto-connect.sh`
+El script principal. Ejecútalo en cada Raspberry Pi para:
+- Detectar su posición alfabética y asignar su ID.
+- Configurar la IP virtual en el loopback.
+- Establecer la conexión Wi-Fi de respaldo.
+- Configurar NAT y persistencia de firewall.
+- Anunciar la ruta en Tailscale.
 
 ```bash
-sudo apt install network-manager ethtool
+sudo ./auto-connect.sh
 ```
 
-## 🚀 Instalación y Uso
+### 2. `diagnose-tailscale.sh`
+Herramienta de diagnóstico para verificar el estado de Tailscale, las rutas anunciadas y la configuración local.
 
-* Clona este repositorio (o descarga el script):
-  
-  ```bash
-  git clone https://github.com/SteawardSantos/Auto-Connect.git
-  cd Auto-Connect
-  ```
+```bash
+sudo ./diagnose-tailscale.sh
+```
 
-* Da permisos de ejecución:
-  
-  ```bash
-  chmod +x auto_wifi.sh
-  ```
+### 3. `generate-report.sh`
+Genera un reporte consolidado en CSV de todos los nodos activos en la red, sus IPs de Tailscale y sus IPs virtuales correspondientes.
 
-* Ejecuta el script:
-  
-  ```bash
-  sudo auto_wifi.sh
-  ```
+```bash
+./generate-report.sh
+```
 
-## 🔧 Configuración
+## ⚙️ Configuración predeterminada
 
-* Puedes editar las variables al inicio del archivo `auto_wifi.sh` para adaptarlo a tu entorno:
-  
-  ```bash
-  WIFI_PASS="TU_CONTRASEÑA"             # Contraseña para los APs
-  WIFI_IFACE="wlan0"                    # Interfaz Wi-Fi
-  LAN_IFACE="eth0"                      # Interfaz LAN (para optimización)
-  METRIC_VALUE="600"                    # 600 = Baja prioridad (Mantiene LAN como principal)
-  TS_ROUTES="192.168.41.0/24"           # Rutas a anunciar en Tailscale
-  ```
-  
+*   **Rango Virtual:** `10.200.0.X/32`
+*   **Destino Real:** `192.168.41.1`
+*   **Interfaz LAN:** `eth0`
+*   **Interfaz Wi-Fi:** `wlan0`
+*   **Patrón de SSID:** `AP[0-9]`
+
 ## 📄 Licencia
 
-* Este proyecto está bajo la Licencia MIT.
+Este proyecto está bajo la Licencia MIT.
